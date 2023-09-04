@@ -29,7 +29,7 @@ Import-Module Veeam.Backup.PowerShell # from V11
 # Add-PSSnapin -Name VeeamPSSnapIn # V10
 
 # General parameters
-$UpdatePath       = "https://raw.githubusercontent.com/buesche87/PRTG.VeeamJobCheck/main/Check-VeeamJobs-XML.ps1"
+$UpdatePath       = "https://raw.githubusercontent.com/buesche87/PRTG.VeeamBRJobCheck/main/VeeamBRJobCheck-XML.ps1"
 $nl               = [Environment]::NewLine
 $resultFolder     = "C:\Temp\VeeamResults"
 
