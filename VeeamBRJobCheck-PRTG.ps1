@@ -106,7 +106,7 @@ if ( -NOT (Test-Path -Path "$xmlResultPath")) { Set-ErrorXML "Share $xmlResultPa
 elseif ( -NOT (Test-Path -Path "$xmlResultPath\$resultxml")) { Set-ErrorXML "$resultxml auf Share $xmlResultPath nicht vorhanden..." }
 
 # Throw an error if the result xml is older than 6 hours
-elseif ( -NOT (Test-Path -Path "$xmlResultPath\$resultxml" -NewerThan (Get-Date).AddHours(-6) )) { Set-ErrorXML "$resultxml auf Share $xmlResultPath älter als 36h, Task Scheduler prüfen." }
+elseif ( -NOT (Test-Path -Path "$xmlResultPath\$resultxml" -NewerThan (Get-Date).AddHours(-6) )) { Set-ErrorXML "$resultxml auf Share $xmlResultPath älter als 6h, Task Scheduler prüfen." }
 
 # You want to land here
 elseif( $xmlContent = Get-Content -Path "$xmlResultPath\$resultxml" ) { return $xmlContent }
