@@ -14,7 +14,7 @@
 
     .NOTES
     Author  : Andreas Bucher
-    Version : 0.9.1
+    Version : 0.9.2
     Purpose : XML part of the PRTG-Sensor VeeamBRJobCheck
 
     .EXAMPLE
@@ -25,8 +25,17 @@
 #----------------------------------------------------------[Declarations]----------------------------------------------------------
 # Include
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-Import-Module Veeam.Backup.PowerShell # from V11
-# Add-PSSnapin -Name VeeamPSSnapIn # V10
+if (Get-Module -ListAvailable -Name Veeam.Backup.PowerShell) {
+    # Include PS-Module from Veeam Backup & Replication V11 and above
+    Import-Module Veeam.Backup.PowerShell
+}
+elseif (Get-PSSnapin -Registered -Name VeeamPSSnapIn) {
+    # Include PS-Snapin from Veeam Backup & Replication V10
+    Add-PSSnapin -Name VeeamPSSnapIn
+}
+else {
+    exit 1
+}
 
 # General parameters
 $UpdatePath       = "https://raw.githubusercontent.com/buesche87/PRTG.VeeamBRJobCheck/main/VeeamBRJobCheck-XML.ps1"
@@ -374,8 +383,11 @@ function Get-NewScript {
 # Autouptade Script
 Get-NewScript
 
-# Get BackupJobs
-$BackupJobs = Get-VBRJob | where-object { $_.IsScheduleEnabled -and $_.JobType -eq "Backup" }
+# Get VMWare Backups
+$VMWareJobs = Get-VBRJob | where-object { $_.IsScheduleEnabled -and $_.JobType -eq "Backup" -and $_.SourceType -eq "VDDK" }
+
+# Get Hyper-V BackupJobs
+$HyperVJobs = Get-VBRJob | where-object { $_.IsScheduleEnabled -and $_.JobType -eq "Backup" -and $_.SourceType -eq "Hyper-V"}
 
 # Get BackupCopyJobs
 $BackupCopyJobs = Get-VBRJob | where-object { $_.IsScheduleEnabled -and $_.JobType -eq "BackupSync" }
@@ -398,8 +410,27 @@ $NASJob = Get-VBRJob | where-object { $_.IsScheduleEnabled -and $_.JobType -eq "
 # Get File Copy Jobs
 $FileCopyJobs = Get-VBRJob | where-object { $_.IsScheduleEnabled -and $_.JobType -eq "Copy" }
 
-#### Get BackupJob details ######################################################################################################
-foreach($item in $BackupJobs) {
+#### Get VMWare Bckup details ######################################################################################################
+foreach($item in $VMWareJobs) {
+
+    $JobResult.Name = $item.Name
+
+    # Load last session
+    $Session = Get-VBRBackupSession | Where-Object { ( $_.jobname -like $JobResult.Name ) } | Sort-Object -Property Creationtime -Descending | Select-Object -First 1
+
+    # Check job results
+    $JobResult = Get-JobResult $Session
+    $JobResult = Get-JobState $JobResult $Session
+    $JobResult.LastBkp = (New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).Hours
+    $CheckJobError = Get-SimpleJobLog $Session
+    if ($CheckJobError) { $JobResult.Text = $CheckJobError }
+
+    # Create XML
+    Set-XMLContent -JobResult $JobResult -HoursSince $HoursSince
+}
+
+#### Get Hyper-V Backup details ######################################################################################################
+foreach($item in $HyperVJobs) {
 
     $JobResult.Name = $item.Name
 
@@ -449,7 +480,7 @@ foreach($item in $SimpleBackupCopyJobs) {
     $JobResult = Get-JobResult $Session
     $JobResult = Get-JobState $JobResult $Session
     $JobResult.LastBkp = (New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).Hours
-    $CheckJobError = Get-JobLog $Session
+    $CheckJobError = Get-SimpleJobLog $Session
     if ($CheckJobError) { $JobResult.Text = $CheckJobError }
 
     # Create XML
