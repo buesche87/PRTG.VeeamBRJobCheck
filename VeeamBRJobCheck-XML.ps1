@@ -410,7 +410,7 @@ foreach($item in $BackupJobs) {
     $JobResult = Get-JobResult $Session
     $JobResult = Get-JobState $JobResult $Session
     $JobResult.LastBkp = (New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).Hours
-    $CheckJobError = Get-SimpleJobLog $Session
+    $CheckJobError = Get-JobLog $Session
     if ($CheckJobError) { $JobResult.Text = $CheckJobError }
 
     # Create XML
