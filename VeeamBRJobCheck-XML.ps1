@@ -14,7 +14,7 @@
 
     .NOTES
     Author  : Andreas Bucher
-    Version : 0.9.2
+    Version : 0.9.3
     Purpose : XML part of the PRTG-Sensor VeeamBRJobCheck
 
     .EXAMPLE
@@ -387,7 +387,7 @@ Get-NewScript
 $VMWareJobs = Get-VBRJob | where-object { $_.IsScheduleEnabled -and $_.JobType -eq "Backup" -and $_.SourceType -eq "VDDK" }
 
 # Get Hyper-V BackupJobs
-$HyperVJobs = Get-VBRJob | where-object { $_.IsScheduleEnabled -and $_.JobType -eq "Backup" -and $_.SourceType -eq "Hyper-V"}
+$HyperVJobs = Get-VBRJob | where-object { $_.IsScheduleEnabled -and $_.JobType -eq "Backup" -and $_.SourceType -eq "HyperV"}
 
 # Get BackupCopyJobs
 $BackupCopyJobs = Get-VBRJob | where-object { $_.IsScheduleEnabled -and $_.JobType -eq "BackupSync" }
