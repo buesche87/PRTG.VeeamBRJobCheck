@@ -14,7 +14,7 @@
 
     .NOTES
     Author  : Andreas Bucher
-    Version : 0.9.3
+    Version : 0.9.4
     Purpose : XML part of the PRTG-Sensor VeeamBRJobCheck
 
     .EXAMPLE
@@ -57,6 +57,7 @@ $JobResult = [PSCustomObject]@{
     duration = 0
     avgspeed = 0
     Lastbkp  = 0
+    progress = 0
     percent  = 0
     psize    = 0
     pcu      = ""
@@ -177,24 +178,34 @@ function Set-XMLContent {
 
 }
 # Calculate backupjob result details
-function Get-JobResult {
+function Get-TaskResult {
     param(
-        $Session
+        $Tasks
     )
 
-    # Fill details from each task in a session
-    foreach ($task in $Session) {
-        $countobj = $countobj + $task.Progress.ProcessedObjects
-        $rsize    = $rsize    + $task.Info.Progress.ReadSize
-        $tsize    = $tsize    + $task.Info.Progress.TransferedSize
-        $psize    = $psize    + $task.Info.Progress.ProcessedSize
-        $usize    = $usize    + $task.Info.Progress.TotalUsedSize
+    # Reset Values
+    [int]$countobj   = 0
+    [float]$rsize    = 0
+    [float]$tsize    = 0
+    [float]$psize    = 0
+    [float]$usize    = 0
+    [float]$duration = 0
+    [float]$avgspeed = 0
+    [float]$percent  = 0
+
+    # Get details from each task
+    foreach ($task in $Tasks) {
+        $countobj += $task.Progress.ProcessedObjects
+        $rsize    += $task.Info.Progress.ReadSize
+        $tsize    += $task.Info.Progress.TransferedSize
+        $psize    += $task.Info.Progress.ProcessedSize
+        $usize    += $task.Info.Progress.TotalUsedSize
         $duration = [Math]::Round([Decimal]$task.Info.Progress.Duration.TotalMinutes ,0)
         if ( -not ($task.Info.Progress.AvgSpeed -eq 0)) { $avgspeed = [Math]::Round([Decimal]$task.Info.Progress.AvgSpeed/1MB, 1) }
-        if ( -not (($task.Progress.Percents -eq 0) -or ($task.Progress.Percents -eq 100))) { $percent = $task.Progress.Percents }
+        if ($task.Progress.Percents -lt 100) {$percent += $task.Progress.Percents}
     }
 
-    # Fill session details
+    # Fill JobResult
     $JobResult.countobj = $countobj
     $JobResult.duration = $duration
     $JobResult.avgspeed = $avgspeed
@@ -205,43 +216,44 @@ function Get-JobResult {
 
     Return $JobResult
 }
+
 # Check backupjob status
-function Get-JobState {
+function Get-SessionState {
     param(
-        $JobResult,
-        $Session
+        $Session,
+        $JobResult
     )
 
-    # Get current progress
-    $jobpercent = $JobResult.percent
-    $JobName    = $JobResult.Name
+    # Check if Session has a percentage state
+    if ($Session.Progress -is [int] -and $JobResult.Percent -eq 0) { $JobResult.Percent = $Session.Progress }
 
     # Get job results and define result parameters
-    if     ($Session.Result -eq "Success")        { $JobResult.Value = 1; $JobResult.Warning = 0; $JobResult.Error = 0; $JobResult.Text = "BackupJob $JobName erfolgreich" }
-    elseif ($Session.Result -eq "Warning")        { $JobResult.Value = 2; $JobResult.Warning = 1; $JobResult.Error = 0; $JobResult.Text = "BackupJob $JobName Warnung. Bitte pr&#252;fen" }
-    elseif ($Session.Result -eq "Failed")         { $JobResult.Value = 3; $JobResult.Warning = 0; $JobResult.Error = 1; $JobResult.Text = "BackupJob $JobName fehlerhaft" }
-    elseif ($Session.State  -eq "Working")        { $JobResult.Value = 2; $JobResult.Warning = 1; $JobResult.Error = 0; $JobResult.Text = "BackupJob $JobName l&#228;uft noch: $jobpercent %"  }
-    elseif ($Session.State  -eq "Postprocessing") { $JobResult.Value = 2; $JobResult.Warning = 1; $JobResult.Error = 0; $JobResult.Text = "BackupJob $JobName Nachbearbeitung" }
-    elseif ($Session.State  -eq "WaitingTape")    { $JobResult.Value = 2; $JobResult.Warning = 1; $JobResult.Error = 0; $JobResult.Text = "BackupJob $JobName wartet auf Tape" }
-    else                                          { $JobResult.Value = 3; $JobResult.Warning = 0; $JobResult.Error = 1; $JobResult.Text = "BackupJob $JobName unbekannter Fehler" }
+    if     ($Session.Result -eq "Success")        { $JobResult.Value = 1; $JobResult.Warning = 0; $JobResult.Error = 0; $JobResult.Text = "BackupJob $($JobResult.Name) erfolgreich" }
+    elseif ($Session.Result -eq "Warning")        { $JobResult.Value = 2; $JobResult.Warning = 1; $JobResult.Error = 0; $JobResult.Text = "BackupJob $($JobResult.Name) Warnung. Bitte pr&#252;fen" }
+    elseif ($Session.Result -eq "Failed")         { $JobResult.Value = 3; $JobResult.Warning = 0; $JobResult.Error = 1; $JobResult.Text = "BackupJob $($JobResult.Name) fehlerhaft" }
+    elseif ($Session.State  -eq "Working")        { $JobResult.Value = 2; $JobResult.Warning = 1; $JobResult.Error = 0; $JobResult.Text = "BackupJob $($JobResult.Name) l&#228;uft noch: $($JobResult.Percent) %"  }
+    elseif ($Session.State  -eq "Postprocessing") { $JobResult.Value = 2; $JobResult.Warning = 1; $JobResult.Error = 0; $JobResult.Text = "BackupJob $($JobResult.Name) Nachbearbeitung" }
+    elseif ($Session.State  -eq "WaitingTape")    { $JobResult.Value = 2; $JobResult.Warning = 1; $JobResult.Error = 0; $JobResult.Text = "BackupJob $($JobResult.Name) wartet auf Tape" }
+    else                                          { $JobResult.Value = 3; $JobResult.Warning = 0; $JobResult.Error = 1; $JobResult.Text = "BackupJob $($JobResult.Name) unbekannter Fehler" }
 
     Return $JobResult
 }
-# Check for warnings or errors
-function Get-JobLog {
+
+# Check for Task Logs
+function Get-TaskLog {
     param(
-        $Session
+        $Tasks
     )
 
     # Get warning messages for each task
     $warningmsg = ""
-    foreach ($Task in ($Session | Get-VBRTaskSession)) {
+    foreach ($Task in $Tasks) {
         $warningmsg += ($Task.logger.getlog().updatedrecords | Where-Object {$_.status -like "*Warning"} | Select-Object title).Title
     }
 
     # Get error messages for each task
     $failedmsg = ""
-    foreach ($Task in ($Session | Get-VBRTaskSession)) {
+    foreach ($Task in $Tasks) {
         $failedmsg += ($Task.logger.getlog().updatedrecords | Where-Object {$_.status -like "*Failed"} | Select-Object title).Title
     }
 
@@ -249,22 +261,30 @@ function Get-JobLog {
     elseif ($warningmsg) { Return $warningmsg }
     else                 { Return }
 }
-# Check for warnings and errors for simple jobs without multiple tasks
-function Get-SimpleJobLog {
+
+# Check for Session Logs
+function Get-SessionLog {
     param(
         $Session
     )
 
-    # Find warning and error messages in session
+    # Get warning messages for each task
     $warningmsg = ""
-    $failedmsg  = ""
-    $warningmsg = $Session[0].Logger.GetLog().updatedrecords | Where-Object {$_.status -like "*Warning"} | ForEach-Object { $_.title }
-    $failedmsg  = $Session[0].Logger.GetLog().updatedrecords | Where-Object {$_.status -like "*Failed"} | ForEach-Object { $_.title }
+    foreach ($Task in $Session) {
+        $warningmsg += ($Task.Log | Where-Object {$_.status -like "*Warning"} | Select-Object title).Title
+    }
+
+    # Get error messages for each task
+    $failedmsg = ""
+    foreach ($Task in $Session) {
+        $failedmsg += ($Task.Log | Where-Object {$_.status -like "*Failed"} | Select-Object title).Title
+    }
 
     if ($failedmsg)      { Return $failedmsg }
     elseif ($warningmsg) { Return $warningmsg }
     else                 { Return }
 }
+
 # Caclulate custom units
 function Set-CustomUnit {
     param(
@@ -337,6 +357,7 @@ function Set-CustomUnit {
 
     Return $JobResult
 }
+
 # Update Script
 function Get-NewScript {
 
@@ -405,7 +426,10 @@ $LinuxAgentJobs = Get-VBRBackup | where-object { $_.JobType -eq "EndpointBackup"
 $WinAgentJobs = Get-VBRComputerBackupJob | where-object { $_.JobEnabled }
 
 # Get NAS Backup Jobs
-$NASJob = Get-VBRJob | where-object { $_.IsScheduleEnabled -and $_.JobType -eq "NasBackup" }
+$NASJobs = Get-VBRJob | where-object { $_.IsScheduleEnabled -and $_.JobType -eq "NasBackup" }
+
+# Get NAS Backup Copy Jobs
+$NASCopyJobs = Get-VBRJob | where-object { $_.IsScheduleEnabled -and $_.JobType -eq "NasBackupCopy" }
 
 # Get File Copy Jobs
 $FileCopyJobs = Get-VBRJob | where-object { $_.IsScheduleEnabled -and $_.JobType -eq "Copy" }
@@ -415,33 +439,150 @@ foreach($item in $VMWareJobs) {
 
     $JobResult.Name = $item.Name
 
-    # Load last session
-    $Session = Get-VBRBackupSession | Where-Object { ( $_.jobname -like $JobResult.Name ) } | Sort-Object -Property Creationtime -Descending | Select-Object -First 1
+    # Load details
+    $Job     = Get-VBRJob -Name $item.name
+    $Session = Get-VBRSession -Job $job -Last
+    $Tasks   = Get-VBRTaskSession -Session $Session
 
-    # Check job results
-    $JobResult = Get-JobResult $Session
-    $JobResult = Get-JobState $JobResult $Session
+    # Check Session results
+    $JobResult = Get-TaskResult $Tasks
+    $JobResult = Get-SessionState $Session $JobResult
     $JobResult.LastBkp = (New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).Hours
-    $CheckJobError = Get-SimpleJobLog $Session
+    $CheckJobError = Get-TaskLog $Tasks
+    $CheckJobError += Get-SessionLog $Session
     if ($CheckJobError) { $JobResult.Text = $CheckJobError }
 
     # Create XML
     Set-XMLContent -JobResult $JobResult -HoursSince $HoursSince
 }
 
-#### Get Hyper-V Backup details ######################################################################################################
+#### Get HyperVJobs Bckup details ######################################################################################################
 foreach($item in $HyperVJobs) {
 
     $JobResult.Name = $item.Name
 
-    # Load last session
-    $Session = Get-VBRBackupSession | Where-Object { ( $_.jobname -like $JobResult.Name ) } | Sort-Object -Property Creationtime -Descending | Select-Object -First 1
+    # Load details
+    $Job     = Get-VBRJob -Name $item.name
+    $Session = Get-VBRSession -Job $job -Last
+    $Tasks   = Get-VBRTaskSession -Session $Session
 
-    # Check job results
-    $JobResult = Get-JobResult $Session
-    $JobResult = Get-JobState $JobResult $Session
+    # Check results
+    $JobResult = Get-TaskResult $Tasks
+    $JobResult = Get-SessionState $Session $JobResult
     $JobResult.LastBkp = (New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).Hours
-    $CheckJobError = Get-JobLog $Session
+    $CheckJobError = Get-TaskLog $Tasks
+    $CheckJobError += Get-SessionLog $Session
+    if ($CheckJobError) { $JobResult.Text = $CheckJobError }
+
+    # Create XML
+    Set-XMLContent -JobResult $JobResult -HoursSince $HoursSince
+}
+
+#### Get SimpleBackupCopy Bckup details ######################################################################################################
+foreach($item in $SimpleBackupCopyJobs) {
+
+    $JobResult.Name = $item.Name
+
+     # Load details
+    $Job = Get-VBRJob -Name $item.Name
+    $Worker = $job.GetWorkerJobs() 
+    $Session = $Worker.FindLastSession()
+
+    # Check results
+    $JobResult = Get-TaskResult $Session
+    $JobResult = Get-SessionState $Session $JobResult
+    $JobResult.LastBkp = (New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).Hours
+    $CheckJobError = Get-TaskLog $Tasks
+    $CheckJobError += Get-SessionLog $Session
+    if ($CheckJobError) { $JobResult.Text = $CheckJobError }
+     
+    # Create XML
+    Set-XMLContent -JobResult $JobResult -HoursSince $HoursSince
+}
+
+#### Get TapeJob details ########################################################################################################
+foreach($item in $TapeJobs) {
+
+    $JobResult.Name = $item.Name
+
+    # Load details
+    $obVBRSession = Get-VBRTapeJob | Where-Object { ( $_.Name -like $item.Name ) }
+    $Session      = Get-VBRSession -Job $obVBRSession -Last
+    $Tasks        = Get-VBRTaskSession -Session $Session
+
+    # Check results
+    $JobResult = Get-TaskResult $Tasks
+    $JobResult = Get-SessionState $Session $JobResult
+    $JobResult.LastBkp = (New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).Hours
+    $CheckJobError = Get-TaskLog $Tasks
+    $CheckJobError += Get-SessionLog $Session
+    if ($CheckJobError) { $JobResult.Text = $CheckJobError }
+
+    # Create XML
+    Set-XMLContent -JobResult $JobResult -HoursSince $HoursSince
+
+}
+
+#### Get Linux-Agent Job details ################################################################################################
+foreach($item in $LinuxAgentJobs) {
+
+    $JobResult.Name = $item.Name
+
+    # Load details
+    $Job     = Get-VBREPJob -Name $item.name
+    $Session = Get-VBRSession -Job $Job -Last
+    $Tasks   = Get-VBRTaskSession -Session $Session
+
+    # Check Session results
+    $JobResult = Get-TaskResult $Tasks
+    $JobResult = Get-SessionState $Session $JobResult
+    $JobResult.LastBkp = (New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).Hours
+    $CheckJobError = Get-TaskLog $Tasks
+    $CheckJobError += Get-SessionLog $Session
+    if ($CheckJobError) { $JobResult.Text = $CheckJobError }
+
+    # Create XML
+    Set-XMLContent -JobResult $JobResult -HoursSince $HoursSince
+}
+
+#### Get NAS Job details ##################################################################################################
+foreach($item in $NASJobs) {
+
+    $JobResult.Name = $item.Name
+
+    # Load details
+    $Job     = Get-VBRJob -Name $item.name
+    $Session = Get-VBRSession -Job $job -Last
+    $Tasks   = Get-VBRTaskSession -Session $Session
+
+    # Check Session results
+    $JobResult = Get-TaskResult $Tasks
+    $JobResult = Get-SessionState $Session $JobResult
+    $JobResult.LastBkp = (New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).Hours
+    $CheckJobError = Get-TaskLog $Tasks
+    $CheckJobError += Get-SessionLog $Session
+    if ($CheckJobError) { $JobResult.Text = $CheckJobError }
+    
+    # Create XML
+    Set-XMLContent -JobResult $JobResult -HoursSince $HoursSince
+}
+
+#### Get Windows-Agent Job details ##############################################################################################
+foreach($item in $WinAgentJobs) {
+
+    $JobResult.Name = $item.Name
+
+    # Load details
+    $Job     = Get-VBRJob -Name $item.name
+    $Session = Get-VBRSession -Job $job -Last
+    $Tasks   = Get-VBRTaskSession -Session $Session
+
+    # Check Session results
+    $JobResult = Get-TaskResult $Tasks
+    $JobResult = Get-SessionState $Session $JobResult
+    $JobResult.LastBkp = (New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).Hours
+    $CheckJobError = Get-TaskLog $Tasks
+    $CheckJobError += Get-SessionLog $Session
     if ($CheckJobError) { $JobResult.Text = $CheckJobError }
 
     # Create XML
@@ -453,131 +594,62 @@ foreach($item in $BackupCopyJobs) {
 
     $JobResult.Name = $item.Name
 
-    # Load last session
-    $Session = Get-VBRBackupSession | Where-Object { ( $_.jobname -like $JobResult.Name -and $_.State -notmatch "Idle" ) } | Sort-Object -Property Creationtime -Descending | Select-Object -First 1
+    # Load details
+    $Job     = Get-VBRJob -Name $item.name
+    $Session = Get-VBRSession -Job $job -Last
+    $Tasks   = Get-VBRTaskSession -Session $Session
 
-    # Check job results
-    $JobResult = Get-JobResult $Session
-    $JobResult = Get-JobState $JobResult $Session
+    # Check Session results
+    $JobResult = Get-TaskResult $Session
+    $JobResult = Get-SessionState $Session $JobResult
     $JobResult.LastBkp = (New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).Hours
-    $CheckJobError = Get-JobLog $Session
+    $CheckJobError = Get-TaskLog $Tasks
+    $CheckJobError += Get-SessionLog $Session
     if ($CheckJobError) { $JobResult.Text = $CheckJobError }
 
     # Create XML
     Set-XMLContent -JobResult $JobResult -HoursSince $HoursSince
 }
 
-#### Get SimpleBackupCopyJob details ############################################################################################
-foreach($item in $SimpleBackupCopyJobs) {
+#### Get NASCopyJobs details ##################################################################################################
+foreach($item in $NASCopyJobs) {
 
     $JobResult.Name = $item.Name
 
-    # Letzte Session des Jobs laden
-    $workers = $item.GetWorkerJobs()
-    $Session = [Veeam.Backup.Core.CBackupSession]::GetByJob($workers.id) | Where-Object { ( $_.jobname -like "*"+$JobResult.Name+"*" -and $_.State -notmatch "Idle" ) }  | Sort-Object -Property Creationtime -Descending | Select-Object -First 1
+    # Load details
+    $Job     = Get-VBRJob -Name $item.name
+    $Session = Get-VBRSession -Job $job -Last
+    $Tasks   = Get-VBRTaskSession -Session $Session
 
-    # Check job results
-    $JobResult = Get-JobResult $Session
-    $JobResult = Get-JobState $JobResult $Session
+    # Check Session results
+    $JobResult = Get-TaskResult $Session
+    $JobResult = Get-SessionState $Session $JobResult
     $JobResult.LastBkp = (New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).Hours
-    $CheckJobError = Get-SimpleJobLog $Session
+    $CheckJobError = Get-TaskLog $Tasks
+    $CheckJobError += Get-SessionLog $Session
     if ($CheckJobError) { $JobResult.Text = $CheckJobError }
 
     # Create XML
     Set-XMLContent -JobResult $JobResult -HoursSince $HoursSince
 }
 
-#### Get TapeJob details ########################################################################################################
-foreach($item in $TapeJobs) {
-
-    $JobResult.Name = $item.Name
-
-    # Letzte Session des Jobs laden
-    $obVBRSession = Get-VBRTapeJob | Where-Object { ( $_.Name -like $JobResult.Name ) }
-    $Session      = Get-VBRSession -Job $obVBRSession  | Sort-Object -Property Creationtime -Descending | Select-Object -First 1
-    $TapeDetails  = Get-VBRTaskSession -Session $Session| Where-Object { ( $_.JobName -like $JobResult.Name ) } | Sort-Object -Property Creationtime -Descending
-
-    # Check job results
-    $JobResult = Get-JobResult $TapeDetails
-    $JobResult = Get-JobState $JobResult $Session
-    $JobResult.LastBkp = (New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).Hours
-    $CheckJobError = Get-SimpleJobLog $TapeDetails
-    if ($CheckJobError) { $JobResult.Text = $CheckJobError }
-
-    # Create XML
-    Set-XMLContent -JobResult $JobResult -HoursSince $HoursSince
-}
-
-#### Get NAS-Job details ########################################################################################################
-foreach($item in $NASJob) {
-
-    $JobResult.Name = $item.Name
-
-    # Letzte Session des Jobs laden
-    $Session = Get-VBRBackupSession | Where-Object { ( $_.jobname -like $JobResult.Name -and $_.State -notmatch "Idle" ) } | Sort-Object -Property Creationtime -Descending | Select-Object -First 1
-
-    # Check job results
-    $JobResult = Get-JobResult $Session
-    $JobResult = Get-JobState $JobResult $Session
-    $JobResult.LastBkp = (New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).Hours
-    $CheckJobError = Get-JobLog $Session
-    if ($CheckJobError) { $JobResult.Text = $CheckJobError }
-
-    # Create XML
-    Set-XMLContent -JobResult $JobResult -HoursSince $HoursSince
-}
-#### Get Linux-Agent Job details ################################################################################################
-foreach($item in $LinuxAgentJobs) {
-
-    $JobResult.Name = $item.Name
-
-    # Letzte Session des Jobs laden
-    $Session = Get-VBRComputerBackupJobSession -Name $JobResult.Name | Sort-Object -Property Creationtime -Descending | Select-Object -First 1
-    $TaskDetails = Get-VBRTaskSession -Session $Session
-
-    # Check job results
-    $JobResult = Get-JobResult $TaskDetails
-    $JobResult = Get-JobState $JobResult $Session
-    $JobResult.LastBkp = (New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).Hours
-    $CheckJobError = Get-SimpleJobLog $TaskDetails
-    if ($CheckJobError) { $JobResult.Text = $CheckJobError }
-
-    # Create XML
-    Set-XMLContent -JobResult $JobResult -HoursSince $HoursSince
-}
-#### Get Windows-Agent Job details ##############################################################################################
-foreach($item in $WinAgentJobs) {
-
-    $JobResult.Name = $item.Name
-
-    # Letzte Session des Jobs laden
-    $Session = Get-VBRComputerBackupJobSession -Name $JobResult.Name | Sort-Object -Property Creationtime -Descending | Select-Object -First 1
-    $TaskDetails = Get-VBRTaskSession -Session $Session
-
-    # Check job results
-    $JobResult = Get-JobResult $TaskDetails
-    $JobResult = Get-JobState $JobResult $Session
-    $JobResult.LastBkp = (New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).Hours
-    $CheckJobError = Get-SimpleJobLog $TaskDetails
-    if ($CheckJobError) { $JobResult.Text = $CheckJobError }
-
-    # Create XML
-    Set-XMLContent -JobResult $JobResult -HoursSince $HoursSince
-}
 #### Get File Copy Job details ##################################################################################################
 foreach($item in $FileCopyJobs) {
 
     $JobResult.Name = $item.Name
 
-    # Load last session
-    $Session = Get-VBRBackupSession | Where-Object { ( $_.jobname -like $JobResult.Name ) } | Sort-Object -Property Creationtime -Descending | Select-Object -First 1
+   # Load details
+   $Job     = Get-VBRJob -Name $item.name
+   $Session = Get-VBRSession -Job $job -Last
+   $Tasks   = Get-VBRTaskSession -Session $Session
 
-    # Check job results
-    $JobResult = Get-JobResult $Session
-    $JobResult = Get-JobState $JobResult $Session
-    $JobResult.LastBkp = (New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).Hours
-    $CheckJobError = Get-JobLog $Session
-    if ($CheckJobError) { $JobResult.Text = $CheckJobError }
+   # Check Session results
+   $JobResult = Get-TaskResult $Session
+   $JobResult = Get-SessionState $Session $JobResult
+   $JobResult.LastBkp = (New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).Hours
+   $CheckJobError = Get-TaskLog $Tasks
+   $CheckJobError += Get-SessionLog $Session
+   if ($CheckJobError) { $JobResult.Text = $CheckJobError }
 
     # Create XML
     Set-XMLContent -JobResult $JobResult -HoursSince $HoursSince

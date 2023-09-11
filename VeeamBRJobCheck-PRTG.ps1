@@ -30,7 +30,7 @@
 
     .NOTES
     Author  : Andreas Bucher
-    Version : 0.9.2
+    Version : 0.9.4
     Purpose : XML-Part of the PRTG-Sensor VeeamBRJobCheck
 
     .EXAMPLE
