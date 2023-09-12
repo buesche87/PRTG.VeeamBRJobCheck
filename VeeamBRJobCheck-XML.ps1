@@ -14,7 +14,7 @@
 
     .NOTES
     Author  : Andreas Bucher
-    Version : 0.9.4
+    Version : 0.9.5
     Purpose : XML part of the PRTG-Sensor VeeamBRJobCheck
 
     .EXAMPLE
@@ -60,13 +60,13 @@ $JobResult = [PSCustomObject]@{
     progress = 0
     percent  = 0
     psize    = 0
-    pcu      = ""
+    pcu      = "GB"
     tsize    = 0
-    tcu      = ""
+    tcu      = "GB"
     rsize    = 0
-    rcu      = ""
+    rcu      = "GB"
     usize    = 0
-    ucu      = ""
+    ucu      = "GB"
 }
 
 #-----------------------------------------------------------[Functions]------------------------------------------------------------
@@ -106,6 +106,7 @@ function Set-XMLContent {
     $result+=   "  <channel>Abgearbeitet</channel>" + $nl
     $result+=   "  <value>$($JobResult.psize)</value>" + $nl
     $result+=   "  <Float>1</Float>" + $nl
+    $result+=   "  <DecimalMode>Auto</DecimalMode>" + $nl
     $result+=   "  <CustomUnit>$($JobResult.pcu)</CustomUnit>" + $nl
     $result+=   "  <showChart>1</showChart>" + $nl
     $result+=   "  <showTable>1</showTable>" + $nl
@@ -115,6 +116,7 @@ function Set-XMLContent {
     $result+=   "  <channel>Gelesen</channel>" + $nl
     $result+=   "  <value>$($JobResult.rsize)</value>" + $nl
     $result+=   "  <Float>1</Float>" + $nl
+    $result+=   "  <DecimalMode>Auto</DecimalMode>" + $nl
     $result+=   "  <CustomUnit>$($JobResult.rcu)</CustomUnit>" + $nl
     $result+=   "  <showChart>1</showChart>" + $nl
     $result+=   "  <showTable>1</showTable>" + $nl
@@ -124,6 +126,7 @@ function Set-XMLContent {
     $result+=   "  <channel>Transferiert</channel>" + $nl
     $result+=   "  <value>$($JobResult.tsize)</value>" + $nl
     $result+=   "  <Float>1</Float>" + $nl
+    $result+=   "  <DecimalMode>Auto</DecimalMode>" + $nl
     $result+=   "  <CustomUnit>$($JobResult.tcu)</CustomUnit>" + $nl
     $result+=   "  <showChart>1</showChart>" + $nl
     $result+=   "  <showTable>1</showTable>" + $nl
@@ -133,6 +136,7 @@ function Set-XMLContent {
     $result+=   "  <channel>Belegt</channel>" + $nl
     $result+=   "  <value>$($JobResult.usize)</value>" + $nl
     $result+=   "  <Float>1</Float>" + $nl
+    $result+=   "  <DecimalMode>Auto</DecimalMode>" + $nl
     $result+=   "  <CustomUnit>$($JobResult.ucu)</CustomUnit>" + $nl
     $result+=   "  <showChart>1</showChart>" + $nl
     $result+=   "  <showTable>1</showTable>" + $nl
@@ -142,6 +146,7 @@ function Set-XMLContent {
     $result+=   "  <channel>Dauer</channel>" + $nl
     $result+=   "  <value>$($JobResult.Duration)</value>" + $nl
     $result+=   "  <Float>1</Float>" + $nl
+    $result+=   "  <DecimalMode>Auto</DecimalMode>" + $nl
     $result+=   "  <CustomUnit>Min</CustomUnit>" + $nl
     $result+=   "  <showChart>1</showChart>" + $nl
     $result+=   "  <showTable>1</showTable>" + $nl
@@ -151,6 +156,7 @@ function Set-XMLContent {
     $result+=   "  <channel>Durchsatz</channel>" + $nl
     $result+=   "  <value>$($JobResult.avgspeed)</value>" + $nl
     $result+=   "  <Float>1</Float>" + $nl
+    $result+=   "  <DecimalMode>Auto</DecimalMode>" + $nl
     $result+=   "  <CustomUnit>MB/s</CustomUnit>" + $nl
     $result+=   "  <showChart>1</showChart>" + $nl
     $result+=   "  <showTable>1</showTable>" + $nl
@@ -177,6 +183,7 @@ function Set-XMLContent {
     $result | Out-File $xmlFilePath -Encoding utf8
 
 }
+
 # Calculate backupjob result details
 function Get-TaskResult {
     param(
@@ -189,7 +196,6 @@ function Get-TaskResult {
     [float]$tsize    = 0
     [float]$psize    = 0
     [float]$usize    = 0
-    [float]$duration = 0
     [float]$avgspeed = 0
     [float]$percent  = 0
 
@@ -200,19 +206,21 @@ function Get-TaskResult {
         $tsize    += $task.Info.Progress.TransferedSize
         $psize    += $task.Info.Progress.ProcessedSize
         $usize    += $task.Info.Progress.TotalUsedSize
-        $duration = [Math]::Round([Decimal]$task.Info.Progress.Duration.TotalMinutes ,0)
-        if ( -not ($task.Info.Progress.AvgSpeed -eq 0)) { $avgspeed = [Math]::Round([Decimal]$task.Info.Progress.AvgSpeed/1MB, 1) }
+        if ( -not ($task.Info.Progress.AvgSpeed -eq 0)) { $avgspeed += $task.Info.Progress.AvgSpeed; $countspeed++ }
         if ($task.Progress.Percents -lt 100) {$percent += $task.Progress.Percents}
     }
 
     # Fill JobResult
-    $JobResult.countobj = $countobj
-    $JobResult.duration = $duration
-    $JobResult.avgspeed = $avgspeed
+    if ($Tasks.Count -ne 1) {$JobResult.countobj = $Tasks.Count}
+    else {$JobResult.countobj = $countobj}
+    
+    $JobResult.avgspeed = ($avgspeed/$countspeed)/1MB
     $JobResult.percent  = $percent
 
-    # Set channel custom units
-    $JobResult = Set-CustomUnit $JobResult $rsize $tsize $psize $usize
+    $JobResult.rsize = $rsize/1GB
+    $JobResult.tsize = $tsize/1GB
+    $JobResult.psize = $psize/1GB
+    $JobResult.usize = $usize/1GB
 
     Return $JobResult
 }
@@ -220,20 +228,25 @@ function Get-TaskResult {
 # Check backupjob status
 function Get-SessionState {
     param(
-        $Session,
-        $JobResult
+        $Session
     )
 
     # Check if Session has a percentage state
     if ($Session.Progress -is [int] -and $JobResult.Percent -eq 0) { $JobResult.Percent = $Session.Progress }
+    $percent = $JobResult.Percent -replace '[^0-9"."]',''
+
+    # Get Job duration
+    if ($Session.EndTime) {$JobResult.duration = [Math]::Round((New-TimeSpan -Start $Session.CreationTime -End $Session.EndTime).TotalMinutes,0)}
+    else {$JobResult.duration = [Math]::Round((New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).TotalMinutes,0)}
 
     # Get job results and define result parameters
     if     ($Session.Result -eq "Success")        { $JobResult.Value = 1; $JobResult.Warning = 0; $JobResult.Error = 0; $JobResult.Text = "BackupJob $($JobResult.Name) erfolgreich" }
     elseif ($Session.Result -eq "Warning")        { $JobResult.Value = 2; $JobResult.Warning = 1; $JobResult.Error = 0; $JobResult.Text = "BackupJob $($JobResult.Name) Warnung. Bitte pr&#252;fen" }
     elseif ($Session.Result -eq "Failed")         { $JobResult.Value = 3; $JobResult.Warning = 0; $JobResult.Error = 1; $JobResult.Text = "BackupJob $($JobResult.Name) fehlerhaft" }
-    elseif ($Session.State  -eq "Working")        { $JobResult.Value = 2; $JobResult.Warning = 1; $JobResult.Error = 0; $JobResult.Text = "BackupJob $($JobResult.Name) l&#228;uft noch: $($JobResult.Percent) %"  }
+    elseif ($Session.State  -eq "Working")        { $JobResult.Value = 2; $JobResult.Warning = 1; $JobResult.Error = 0; $JobResult.Text = "BackupJob $($JobResult.Name) l&#228;uft noch: $percent %"  }
     elseif ($Session.State  -eq "Postprocessing") { $JobResult.Value = 2; $JobResult.Warning = 1; $JobResult.Error = 0; $JobResult.Text = "BackupJob $($JobResult.Name) Nachbearbeitung" }
     elseif ($Session.State  -eq "WaitingTape")    { $JobResult.Value = 2; $JobResult.Warning = 1; $JobResult.Error = 0; $JobResult.Text = "BackupJob $($JobResult.Name) wartet auf Tape" }
+    elseif ($Session.State  -eq "Idle")           { $JobResult.Value = 1; $JobResult.Warning = 0; $JobResult.Error = 0; $JobResult.Text = "BackupJob $($JobResult.Name) idle" }
     else                                          { $JobResult.Value = 3; $JobResult.Warning = 0; $JobResult.Error = 1; $JobResult.Text = "BackupJob $($JobResult.Name) unbekannter Fehler" }
 
     Return $JobResult
@@ -285,79 +298,6 @@ function Get-SessionLog {
     else                 { Return }
 }
 
-# Caclulate custom units
-function Set-CustomUnit {
-    param(
-        $JobResult,
-        $rsize,
-        $tsize,
-        $psize,
-        $usize
-    )
-
-    # Set readsize customunit
-    $strlength = ($rsize).ToString().Length
-    if ( $strlength -lt 7 ) {
-        $JobResult.rcu   = "KB"
-        $JobResult.rsize = [Math]::Round([Decimal]$rsize/1KB, 1)
-    }
-    elseif ($strlength -lt 10 ) {
-        $JobResult.rcu   = "MB"
-        $JobResult.rsize = [Math]::Round([Decimal]$rsize/1MB, 1)
-    }
-    else {
-        $JobResult.rcu   = "GB"
-        $JobResult.rsize = [Math]::Round([Decimal]$rsize/1GB, 1)
-    }
-
-    # Set transfersize customunit
-    $strlength = ($tsize).ToString().Length
-    if ( $strlength -lt 7 ) {
-        $JobResult.tcu   = "KB"
-        $JobResult.tsize = [Math]::Round([Decimal]$tsize/1KB, 1)
-    }
-    elseif ($strlength -lt 10 ) {
-        $JobResult.tcu   = "MB"
-        $JobResult.tsize = [Math]::Round([Decimal]$tsize/1MB, 1)
-    }
-    else {
-        $JobResult.tcu   = "GB"
-        $JobResult.tsize = [Math]::Round([Decimal]$tsize/1GB, 1)
-    }
-
-    # Set processedsize customunit
-    $strlength = ($psize).ToString().Length
-    if ( $strlength -lt 7 ) {
-        $JobResult.pcu   = "KB"
-        $JobResult.psize = [Math]::Round([Decimal]$psize/1KB, 1)
-    }
-    elseif ($strlength -lt 10 ) {
-        $JobResult.pcu   = "MB"
-        $JobResult.psize = [Math]::Round([Decimal]$psize/1MB, 1)
-    }
-    else {
-        $JobResult.pcu   = "GB"
-        $JobResult.psize = [Math]::Round([Decimal]$psize/1GB, 1)
-    }
-
-    # Set usedsize customunit
-    $strlength = ($usize).ToString().Length
-    if ( $strlength -lt 7 ) {
-        $JobResult.ucu   = "KB"
-        $JobResult.usize = [Math]::Round([Decimal]$usize/1KB, 1)
-    }
-    elseif ($strlength -lt 10 ) {
-        $JobResult.ucu   = "MB"
-        $JobResult.usize = [Math]::Round([Decimal]$usize/1MB, 1)
-    }
-    else {
-        $JobResult.ucu   = "GB"
-        $JobResult.usize = [Math]::Round([Decimal]$usize/1GB, 1)
-    }
-
-    Return $JobResult
-}
-
 # Update Script
 function Get-NewScript {
 
@@ -400,257 +340,130 @@ function Get-NewScript {
         }
     }
 }
+
+# Get Backupjob Details
+function Get-BackupJobDetails {
+    param (
+        $Job
+    )
+
+    # Get backupjob name
+    $JobResult.Name = $Job.Name
+
+    # Get last session and associated tasks
+    $Session = Get-VBRSession -Job $Job -Last
+    $Tasks   = Get-VBRTaskSession -Session $Session
+
+    # Get hours since last backup
+    $JobResult.LastBkp = (New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).Hours
+
+    # Check Session results
+    $JobResult = Get-TaskResult -Tasks $Tasks
+    $JobResult = Get-SessionState -Session $Session
+
+    # Check for log messages
+    $JobLog  = Get-TaskLog -Tasks $Tasks
+    $JobLog += Get-SessionLog -Session $Session
+    if ($JobLog) { $JobResult.Text = $JobLog }
+
+    # Create XML
+    Set-XMLContent -JobResult $JobResult
+}
+
+# Get Copy Job Details
+function Get-CopyJobDetails {
+    param (
+        $Job
+    )
+
+    # Get backupjob name
+    $JobResult.Name = $Job.Name
+
+    # Get last session and associated tasks
+    # $Session = Get-VBRBackupSession | Where-Object { ( $_.jobname -like $JobResult.Name -and $_.State -notmatch "Idle" ) } | Sort-Object -Property Creationtime -Descending | Select-Object -First 1
+    $Session = Get-VBRSession -Job $Job -Last
+    $Tasks   = Get-VBRTaskSession -Session $Session
+
+    # Get hours since last backup
+    $JobResult.LastBkp = (New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).Hours
+
+    # Check Session results
+    $JobResult = Get-TaskResult -Tasks $Session
+    $JobResult = Get-SessionState -Session $Session
+
+    # Check for log messages
+    $JobLog  = Get-TaskLog -Tasks $Tasks
+    $JobLog += Get-SessionLog -Session $Session
+    if ($JobLog) { $JobResult.Text = $JobLog }
+
+    # Create XML
+    Set-XMLContent -JobResult $JobResult
+}
 #-----------------------------------------------------------[Execute]------------------------------------------------------------
 # Autouptade Script
 Get-NewScript
 
-# Get VMWare Backups
-$VMWareJobs = Get-VBRJob | where-object { $_.IsScheduleEnabled -and $_.JobType -eq "Backup" -and $_.SourceType -eq "VDDK" }
+# Get Backup Jobs 
+$BackupJobs = Get-VBRJob | where-object { $_.IsScheduleEnabled -and $_.JobType -eq "Backup" }
 
-# Get Hyper-V BackupJobs
-$HyperVJobs = Get-VBRJob | where-object { $_.IsScheduleEnabled -and $_.JobType -eq "Backup" -and $_.SourceType -eq "HyperV"}
-
-# Get BackupCopyJobs
-$BackupCopyJobs = Get-VBRJob | where-object { $_.IsScheduleEnabled -and $_.JobType -eq "BackupSync" }
-
-# Get SimpleBackupCopyJobs
-$SimpleBackupCopyJobs = Get-VBRJob | where-object { $_.IsScheduleEnabled -and $_.JobType -eq "SimpleBackupCopyPolicy" }
-
-# Get TapeJobs
+# Get Tape Jobs
 $Tapejobs = Get-VBRTapeJob | where-object { $_.Enabled }
 
-# Get Linux Agent Jobs
-$LinuxAgentJobs = Get-VBRBackup | where-object { $_.JobType -eq "EndpointBackup"}
+# Get NAS Jobs
+$NASJobs = Get-VBRJob | where-object { $_.IsScheduleEnabled -and $_.JobType -eq "NasBackup" }
 
 # Get Windows Agent Jobs
 $WinAgentJobs = Get-VBRComputerBackupJob | where-object { $_.JobEnabled }
 
-# Get NAS Backup Jobs
-$NASJobs = Get-VBRJob | where-object { $_.IsScheduleEnabled -and $_.JobType -eq "NasBackup" }
+# Get Linux Agent Jobs
+$LinuxAgentJobs = Get-VBREPJob | where-object { $_.IsEnabled }
 
-# Get NAS Backup Copy Jobs
+# Get Backup Copy Jobs
+$BackupCopyJobs = Get-VBRJob | where-object { $_.IsScheduleEnabled -and $_.JobType -eq "BackupSync" }
+
+# Get NAS Copy Jobs
 $NASCopyJobs = Get-VBRJob | where-object { $_.IsScheduleEnabled -and $_.JobType -eq "NasBackupCopy" }
 
 # Get File Copy Jobs
 $FileCopyJobs = Get-VBRJob | where-object { $_.IsScheduleEnabled -and $_.JobType -eq "Copy" }
 
-#### Get VMWare Bckup details ######################################################################################################
-foreach($item in $VMWareJobs) {
+# Get Simple Backup Copy Jobs
+$SimpleBackupCopyJobs = Get-VBRJob | where-object { $_.IsScheduleEnabled -and $_.JobType -eq "SimpleBackupCopyPolicy" }
 
-    $JobResult.Name = $item.Name
+#### Get Backup Job details #####################################################################################################
+foreach($item in $BackupJobs)     { Get-BackupJobDetails -Job $item }
+foreach($item in $TapeJobs)       { Get-BackupJobDetails -Job $item }
+foreach($item in $NASJobs)        { Get-BackupJobDetails -Job $item }
+foreach($item in $WinAgentJobs)   { Get-BackupJobDetails -Job $item }
+foreach($item in $LinuxAgentJobs) { Get-BackupJobDetails -Job $item }
 
-    # Load details
-    $Job     = Get-VBRJob -Name $item.name
-    $Session = Get-VBRSession -Job $job -Last
-    $Tasks   = Get-VBRTaskSession -Session $Session
-
-    # Check Session results
-    $JobResult = Get-TaskResult $Tasks
-    $JobResult = Get-SessionState $Session $JobResult
-    $JobResult.LastBkp = (New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).Hours
-    $CheckJobError = Get-TaskLog $Tasks
-    $CheckJobError += Get-SessionLog $Session
-    if ($CheckJobError) { $JobResult.Text = $CheckJobError }
-
-    # Create XML
-    Set-XMLContent -JobResult $JobResult -HoursSince $HoursSince
-}
-
-#### Get HyperVJobs Bckup details ######################################################################################################
-foreach($item in $HyperVJobs) {
-
-    $JobResult.Name = $item.Name
-
-    # Load details
-    $Job     = Get-VBRJob -Name $item.name
-    $Session = Get-VBRSession -Job $job -Last
-    $Tasks   = Get-VBRTaskSession -Session $Session
-
-    # Check results
-    $JobResult = Get-TaskResult $Tasks
-    $JobResult = Get-SessionState $Session $JobResult
-    $JobResult.LastBkp = (New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).Hours
-    $CheckJobError = Get-TaskLog $Tasks
-    $CheckJobError += Get-SessionLog $Session
-    if ($CheckJobError) { $JobResult.Text = $CheckJobError }
-
-    # Create XML
-    Set-XMLContent -JobResult $JobResult -HoursSince $HoursSince
-}
+#### Get Copy Job details #######################################################################################################
+foreach($item in $BackupCopyJobs) { Get-CopyJobDetails -Job $item }
+foreach($item in $NASCopyJobs)    { Get-BackupJobDetails -Job $item }
+foreach($item in $FileCopyJobs)   { Get-CopyJobDetails -Job $item }
 
 #### Get SimpleBackupCopy Bckup details ######################################################################################################
 foreach($item in $SimpleBackupCopyJobs) {
 
+    # Get backupjob name
     $JobResult.Name = $item.Name
 
-     # Load details
-    $Job = Get-VBRJob -Name $item.Name
-    $Worker = $job.GetWorkerJobs() 
+    # Get last session and associated tasks
+    $Worker  = $item.GetWorkerJobs() 
     $Session = $Worker.FindLastSession()
+    # $Session = [Veeam.Backup.Core.CBackupSession]::GetByJob($Worker.id) | Where-Object { ( $_.jobname -like "*"+$JobResult.Name+"*" -and $_.State -notmatch "Idle" ) }  | Sort-Object -Property Creationtime -Descending | Select-Object -First 1
 
     # Check results
-    $JobResult = Get-TaskResult $Session
-    $JobResult = Get-SessionState $Session $JobResult
+    $JobResult = Get-TaskResult -Task $Session
+    $JobResult = Get-SessionState -Session $Session
+
+    # Get hours since last backup
     $JobResult.LastBkp = (New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).Hours
-    $CheckJobError = Get-TaskLog $Tasks
-    $CheckJobError += Get-SessionLog $Session
+
+    $CheckJobError  = Get-TaskLog -Task $Session
+    $CheckJobError += Get-SessionLog -Session $Session
     if ($CheckJobError) { $JobResult.Text = $CheckJobError }
      
     # Create XML
-    Set-XMLContent -JobResult $JobResult -HoursSince $HoursSince
-}
-
-#### Get TapeJob details ########################################################################################################
-foreach($item in $TapeJobs) {
-
-    $JobResult.Name = $item.Name
-
-    # Load details
-    $obVBRSession = Get-VBRTapeJob | Where-Object { ( $_.Name -like $item.Name ) }
-    $Session      = Get-VBRSession -Job $obVBRSession -Last
-    $Tasks        = Get-VBRTaskSession -Session $Session
-
-    # Check results
-    $JobResult = Get-TaskResult $Tasks
-    $JobResult = Get-SessionState $Session $JobResult
-    $JobResult.LastBkp = (New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).Hours
-    $CheckJobError = Get-TaskLog $Tasks
-    $CheckJobError += Get-SessionLog $Session
-    if ($CheckJobError) { $JobResult.Text = $CheckJobError }
-
-    # Create XML
-    Set-XMLContent -JobResult $JobResult -HoursSince $HoursSince
-
-}
-
-#### Get Linux-Agent Job details ################################################################################################
-foreach($item in $LinuxAgentJobs) {
-
-    $JobResult.Name = $item.Name
-
-    # Load details
-    $Job     = Get-VBREPJob -Name $item.name
-    $Session = Get-VBRSession -Job $Job -Last
-    $Tasks   = Get-VBRTaskSession -Session $Session
-
-    # Check Session results
-    $JobResult = Get-TaskResult $Tasks
-    $JobResult = Get-SessionState $Session $JobResult
-    $JobResult.LastBkp = (New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).Hours
-    $CheckJobError = Get-TaskLog $Tasks
-    $CheckJobError += Get-SessionLog $Session
-    if ($CheckJobError) { $JobResult.Text = $CheckJobError }
-
-    # Create XML
-    Set-XMLContent -JobResult $JobResult -HoursSince $HoursSince
-}
-
-#### Get NAS Job details ##################################################################################################
-foreach($item in $NASJobs) {
-
-    $JobResult.Name = $item.Name
-
-    # Load details
-    $Job     = Get-VBRJob -Name $item.name
-    $Session = Get-VBRSession -Job $job -Last
-    $Tasks   = Get-VBRTaskSession -Session $Session
-
-    # Check Session results
-    $JobResult = Get-TaskResult $Tasks
-    $JobResult = Get-SessionState $Session $JobResult
-    $JobResult.LastBkp = (New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).Hours
-    $CheckJobError = Get-TaskLog $Tasks
-    $CheckJobError += Get-SessionLog $Session
-    if ($CheckJobError) { $JobResult.Text = $CheckJobError }
-    
-    # Create XML
-    Set-XMLContent -JobResult $JobResult -HoursSince $HoursSince
-}
-
-#### Get Windows-Agent Job details ##############################################################################################
-foreach($item in $WinAgentJobs) {
-
-    $JobResult.Name = $item.Name
-
-    # Load details
-    $Job     = Get-VBRJob -Name $item.name
-    $Session = Get-VBRSession -Job $job -Last
-    $Tasks   = Get-VBRTaskSession -Session $Session
-
-    # Check Session results
-    $JobResult = Get-TaskResult $Tasks
-    $JobResult = Get-SessionState $Session $JobResult
-    $JobResult.LastBkp = (New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).Hours
-    $CheckJobError = Get-TaskLog $Tasks
-    $CheckJobError += Get-SessionLog $Session
-    if ($CheckJobError) { $JobResult.Text = $CheckJobError }
-
-    # Create XML
-    Set-XMLContent -JobResult $JobResult -HoursSince $HoursSince
-}
-
-#### Get BackupCopyJob details ##################################################################################################
-foreach($item in $BackupCopyJobs) {
-
-    $JobResult.Name = $item.Name
-
-    # Load details
-    $Job     = Get-VBRJob -Name $item.name
-    $Session = Get-VBRSession -Job $job -Last
-    $Tasks   = Get-VBRTaskSession -Session $Session
-
-    # Check Session results
-    $JobResult = Get-TaskResult $Session
-    $JobResult = Get-SessionState $Session $JobResult
-    $JobResult.LastBkp = (New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).Hours
-    $CheckJobError = Get-TaskLog $Tasks
-    $CheckJobError += Get-SessionLog $Session
-    if ($CheckJobError) { $JobResult.Text = $CheckJobError }
-
-    # Create XML
-    Set-XMLContent -JobResult $JobResult -HoursSince $HoursSince
-}
-
-#### Get NASCopyJobs details ##################################################################################################
-foreach($item in $NASCopyJobs) {
-
-    $JobResult.Name = $item.Name
-
-    # Load details
-    $Job     = Get-VBRJob -Name $item.name
-    $Session = Get-VBRSession -Job $job -Last
-    $Tasks   = Get-VBRTaskSession -Session $Session
-
-    # Check Session results
-    $JobResult = Get-TaskResult $Session
-    $JobResult = Get-SessionState $Session $JobResult
-    $JobResult.LastBkp = (New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).Hours
-    $CheckJobError = Get-TaskLog $Tasks
-    $CheckJobError += Get-SessionLog $Session
-    if ($CheckJobError) { $JobResult.Text = $CheckJobError }
-
-    # Create XML
-    Set-XMLContent -JobResult $JobResult -HoursSince $HoursSince
-}
-
-#### Get File Copy Job details ##################################################################################################
-foreach($item in $FileCopyJobs) {
-
-    $JobResult.Name = $item.Name
-
-   # Load details
-   $Job     = Get-VBRJob -Name $item.name
-   $Session = Get-VBRSession -Job $job -Last
-   $Tasks   = Get-VBRTaskSession -Session $Session
-
-   # Check Session results
-   $JobResult = Get-TaskResult $Session
-   $JobResult = Get-SessionState $Session $JobResult
-   $JobResult.LastBkp = (New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).Hours
-   $CheckJobError = Get-TaskLog $Tasks
-   $CheckJobError += Get-SessionLog $Session
-   if ($CheckJobError) { $JobResult.Text = $CheckJobError }
-
-    # Create XML
-    Set-XMLContent -JobResult $JobResult -HoursSince $HoursSince
+    Set-XMLContent -JobResult $JobResult
 }
