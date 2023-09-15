@@ -169,9 +169,9 @@ function Set-XMLContent {
     $result+=   "  <showChart>1</showChart>" + $nl
     $result+=   "  <showTable>1</showTable>" + $nl
     $result+=   "  <LimitMaxWarning>$WarningLevel</LimitMaxWarning>" + $nl
-    $result+=   "  <LimitWarningMsg>Backup-Job &#228;lter als 24h</LimitWarningMsg>" + $nl
+    $result+=   "  <LimitWarningMsg>Backup-Job älter als 24h</LimitWarningMsg>" + $nl
     $result+=   "  <LimitMaxError>$ErrorLevel</LimitMaxError>" + $nl
-    $result+=   "  <LimitErrorMsg>Backup-Job &#228;lter als 36h</LimitErrorMsg>" + $nl
+    $result+=   "  <LimitErrorMsg>Backup-Job älter als 36h</LimitErrorMsg>" + $nl
     $result+=   "  <LimitMode>1</LimitMode>" + $nl
     $result+=   "</result>" + $nl
 
