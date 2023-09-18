@@ -14,7 +14,7 @@
 
     .NOTES
     Author  : Andreas Bucher
-    Version : 0.9.5
+    Version : 1.0.0
     Purpose : XML part of the PRTG-Sensor VeeamBRJobCheck
 
     .EXAMPLE
@@ -38,7 +38,6 @@ else {
 }
 
 # General parameters
-$UpdatePath       = "https://raw.githubusercontent.com/buesche87/PRTG.VeeamBRJobCheck/main/VeeamBRJobCheck-XML.ps1"
 $nl               = [Environment]::NewLine
 $resultFolder     = "C:\Temp\VeeamResults"
 
@@ -184,6 +183,66 @@ function Set-XMLContent {
 
 }
 
+# Get Backupjob Details
+function Get-BackupJobDetails {
+    param (
+        $Job
+    )
+
+    # Get backupjob name
+    $JobResult.Name = $Job.Name
+
+    # Get last active session
+    # Immediate Backup Copy without idle state
+    if ($Job.JobType -eq "SimpleBackupCopyPolicy") {
+        $Worker  = $Job.GetWorkerJobs() 
+        $Session = [Veeam.Backup.Core.CBackupSession]::GetByJob($Worker.id) | Where-Object { $_.State -notmatch "Idle" }  | Sort-Object -Property Creationtime -Descending | Select-Object -First 1
+    }
+    # Legacy Backup Copy without idle state
+    # Activate if no data is returned for Legacy Backup Copy Jobs
+    #elseif ($Job.JobType -eq "BackupSync") { 
+    #    $Session = Get-VBRSession -Job $Job | where-object { $_.State -ne "idle" } | Sort-Object -Property Creationtime -Descending | Select-Object -First 1
+    #}
+    # Everything else
+    else {
+        $Session = Get-VBRSession -Job $Job -Last
+    }
+
+    # Get Tasks from Session
+    $Tasks = Get-VBRTaskSession -Session $Session
+
+    # Get hours since last backup
+    $JobResult.LastBkp = (New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).Hours
+
+    # Check Session results
+    $JobResult = Get-SessionState -Session $Session
+
+    # Get Task resultst
+    # Immediate Backup Copy
+    if ($Job.JobType -eq "SimpleBackupCopyPolicy" ) {
+        $JobResult = Get-TaskResult -Tasks $Session
+    }
+    # Everything else
+    else {
+        $JobResult = Get-TaskResult -Tasks $Tasks
+    }
+
+    # Check for log messages
+    # Immediate Backup Copy
+    if ($Job.JobType -eq "SimpleBackupCopyPolicy") {
+        $JobLog  = Get-TaskLog -Tasks $Session
+    }
+    # Everything else
+    else {
+        $JobLog  = Get-TaskLog -Tasks $Tasks
+    }
+    $JobLog += Get-SessionLog -Session $Session
+    if ($JobLog) { $JobResult.Text = $JobLog }
+
+    # Create XML
+    Set-XMLContent -JobResult $JobResult
+}
+
 # Calculate backupjob result details
 function Get-TaskResult {
     param(
@@ -298,113 +357,7 @@ function Get-SessionLog {
     else                 { Return }
 }
 
-# Update Script
-function Get-NewScript {
-
-    # Check if Update-Script is reachable
-    $StatusCode = Invoke-WebRequest $UpdatePath -UseBasicParsing | ForEach-Object {$_.StatusCode}
-    $CurrentScript = $PSCommandPath
-
-    if ($StatusCode -eq 200 ) {
-
-        # Parse version string of script on github
-        $UpdateScriptcontent = (Invoke-webrequest -URI $UpdatePath -UseBasicParsing).Content
-        $newversionstring    = ($UpdateScriptcontent | Select-String "Version :.*" | Select-Object -First 1).Matches.Value
-        $newversion          = $newversionstring -replace '[^0-9"."]',''
-
-        # Parse version string of current script
-        $CurrentScriptContent = Get-Content -Path $PSCommandPath -Encoding UTF8 -Raw
-        $currentversionstring = ($CurrentScriptContent | Select-String "Version :.*" | Select-Object -First 1).Matches.Value
-        $currentversion       = $currentversionstring -replace '[^0-9"."]',''
-
-        # Replace and re-run script if update-script is newer
-        if ([version]$newversion -gt [version]$currentversion) {
-
-            # Create temp directory if it does not exists
-            $tmpdirectory = "C:\Temp"
-            if(-not (test-path $tmpdirectory)){ New-Item -Path $tmpdirectory -ItemType Directory }
-
-            # Create a temporary file with content of the new script
-            $tempfile = "$tmpdirectory\update-script.new"
-            Invoke-WebRequest -URI $UpdatePath -outfile $tempfile
-
-            # Replace current script
-            $content = Get-Content $tempfile -Encoding utf8 -raw
-            $content | Set-Content $CurrentScript -encoding UTF8
-
-            # Remove temporary file
-            Remove-Item $tempfile
-
-            # Call new script
-            &$CurrentScript $script:args
-        }
-    }
-}
-
-# Get Backupjob Details
-function Get-BackupJobDetails {
-    param (
-        $Job
-    )
-
-    # Get backupjob name
-    $JobResult.Name = $Job.Name
-
-    # Get last active session
-    # Immediate Backup Copy without idle state
-    if ($Job.JobType -eq "SimpleBackupCopyPolicy") {
-        $Worker  = $Job.GetWorkerJobs() 
-        $Session = [Veeam.Backup.Core.CBackupSession]::GetByJob($Worker.id) | Where-Object { $_.State -notmatch "Idle" }  | Sort-Object -Property Creationtime -Descending | Select-Object -First 1
-    }
-    # Legacy Backup Copy without idle state
-    # Activate if no data is returned for Legacy Backup Copy Jobs
-    #elseif ($Job.JobType -eq "BackupSync") { 
-    #    $Session = Get-VBRSession -Job $Job | where-object { $_.State -ne "idle" } | Sort-Object -Property Creationtime -Descending | Select-Object -First 1
-    #}
-    # Everything else
-    else {
-        $Session = Get-VBRSession -Job $Job -Last
-    }
-
-    # Get Tasks from Session
-    $Tasks = Get-VBRTaskSession -Session $Session
-
-    # Get hours since last backup
-    $JobResult.LastBkp = (New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).Hours
-
-    # Check Session results
-    $JobResult = Get-SessionState -Session $Session
-
-    # Get Task resultst
-    # Immediate Backup Copy
-    if ($Job.JobType -eq "SimpleBackupCopyPolicy" ) {
-        $JobResult = Get-TaskResult -Tasks $Session
-    }
-    # Everything else
-    else {
-        $JobResult = Get-TaskResult -Tasks $Tasks
-    }
-
-    # Check for log messages
-    # Immediate Backup Copy
-    if ($Job.JobType -eq "SimpleBackupCopyPolicy") {
-        $JobLog  = Get-TaskLog -Tasks $Session
-    }
-    # Everything else
-    else {
-        $JobLog  = Get-TaskLog -Tasks $Tasks
-    }
-    $JobLog += Get-SessionLog -Session $Session
-    if ($JobLog) { $JobResult.Text = $JobLog }
-
-    # Create XML
-    Set-XMLContent -JobResult $JobResult
-}
-
 #-----------------------------------------------------------[Execute]------------------------------------------------------------
-# Autouptade Script
-# Get-NewScript
-
 # Get Backup Jobs 
 $BackupJobs = Get-VBRJob | where-object { $_.IsScheduleEnabled -and $_.JobType -eq "Backup" }
 
