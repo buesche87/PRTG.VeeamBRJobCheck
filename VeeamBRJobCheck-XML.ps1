@@ -350,19 +350,50 @@ function Get-BackupJobDetails {
     # Get backupjob name
     $JobResult.Name = $Job.Name
 
-    # Get last session and associated tasks
-    $Session = Get-VBRSession -Job $Job -Last
-    $Tasks   = Get-VBRTaskSession -Session $Session
+    # Get last active session
+    # Immediate Backup Copy without idle state
+    if ($Job.JobType -eq "SimpleBackupCopyPolicy") {
+        $Worker  = $Job.GetWorkerJobs() 
+        $Session = [Veeam.Backup.Core.CBackupSession]::GetByJob($Worker.id) | Where-Object { $_.State -notmatch "Idle" }  | Sort-Object -Property Creationtime -Descending | Select-Object -First 1
+    }
+    # Legacy Backup Copy without idle state
+    # Activate if no data is returned for Legacy Backup Copy Jobs
+    #elseif ($Job.JobType -eq "BackupSync") { 
+    #    $Session = Get-VBRSession -Job $Job | where-object { $_.State -ne "idle" } | Sort-Object -Property Creationtime -Descending | Select-Object -First 1
+    #}
+    # Everything else
+    else {
+        $Session = Get-VBRSession -Job $Job -Last
+    }
+
+    # Get Tasks from Session
+    $Tasks = Get-VBRTaskSession -Session $Session
 
     # Get hours since last backup
     $JobResult.LastBkp = (New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).Hours
 
     # Check Session results
-    $JobResult = Get-TaskResult -Tasks $Tasks
     $JobResult = Get-SessionState -Session $Session
 
+    # Get Task resultst
+    # Immediate Backup Copy
+    if ($Job.JobType -eq "SimpleBackupCopyPolicy" ) {
+        $JobResult = Get-TaskResult -Tasks $Session
+    }
+    # Everything else
+    else {
+        $JobResult = Get-TaskResult -Tasks $Tasks
+    }
+
     # Check for log messages
-    $JobLog  = Get-TaskLog -Tasks $Tasks
+    # Immediate Backup Copy
+    if ($Job.JobType -eq "SimpleBackupCopyPolicy") {
+        $JobLog  = Get-TaskLog -Tasks $Session
+    }
+    # Everything else
+    else {
+        $JobLog  = Get-TaskLog -Tasks $Tasks
+    }
     $JobLog += Get-SessionLog -Session $Session
     if ($JobLog) { $JobResult.Text = $JobLog }
 
@@ -370,38 +401,9 @@ function Get-BackupJobDetails {
     Set-XMLContent -JobResult $JobResult
 }
 
-# Get Copy Job Details
-function Get-CopyJobDetails {
-    param (
-        $Job
-    )
-
-    # Get backupjob name
-    $JobResult.Name = $Job.Name
-
-    # Get last session and associated tasks
-    # $Session = Get-VBRBackupSession | Where-Object { ( $_.jobname -like $JobResult.Name -and $_.State -notmatch "Idle" ) } | Sort-Object -Property Creationtime -Descending | Select-Object -First 1
-    $Session = Get-VBRSession -Job $Job -Last
-    $Tasks   = Get-VBRTaskSession -Session $Session
-
-    # Get hours since last backup
-    $JobResult.LastBkp = (New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).Hours
-
-    # Check Session results
-    $JobResult = Get-TaskResult -Tasks $Session
-    $JobResult = Get-SessionState -Session $Session
-
-    # Check for log messages
-    $JobLog  = Get-TaskLog -Tasks $Tasks
-    $JobLog += Get-SessionLog -Session $Session
-    if ($JobLog) { $JobResult.Text = $JobLog }
-
-    # Create XML
-    Set-XMLContent -JobResult $JobResult
-}
 #-----------------------------------------------------------[Execute]------------------------------------------------------------
 # Autouptade Script
-Get-NewScript
+# Get-NewScript
 
 # Get Backup Jobs 
 $BackupJobs = Get-VBRJob | where-object { $_.IsScheduleEnabled -and $_.JobType -eq "Backup" }
@@ -431,39 +433,12 @@ $FileCopyJobs = Get-VBRJob | where-object { $_.IsScheduleEnabled -and $_.JobType
 $SimpleBackupCopyJobs = Get-VBRJob | where-object { $_.IsScheduleEnabled -and $_.JobType -eq "SimpleBackupCopyPolicy" }
 
 #### Get Backup Job details #####################################################################################################
-foreach($item in $BackupJobs)     { Get-BackupJobDetails -Job $item }
-foreach($item in $TapeJobs)       { Get-BackupJobDetails -Job $item }
-foreach($item in $NASJobs)        { Get-BackupJobDetails -Job $item }
-foreach($item in $WinAgentJobs)   { Get-BackupJobDetails -Job $item }
-foreach($item in $LinuxAgentJobs) { Get-BackupJobDetails -Job $item }
-
-#### Get Copy Job details #######################################################################################################
-foreach($item in $BackupCopyJobs) { Get-CopyJobDetails -Job $item }
-foreach($item in $NASCopyJobs)    { Get-BackupJobDetails -Job $item }
-foreach($item in $FileCopyJobs)   { Get-CopyJobDetails -Job $item }
-
-#### Get SimpleBackupCopy Bckup details ######################################################################################################
-foreach($item in $SimpleBackupCopyJobs) {
-
-    # Get backupjob name
-    $JobResult.Name = $item.Name
-
-    # Get last session and associated tasks
-    $Worker  = $item.GetWorkerJobs() 
-    $Session = $Worker.FindLastSession()
-    # $Session = [Veeam.Backup.Core.CBackupSession]::GetByJob($Worker.id) | Where-Object { ( $_.jobname -like "*"+$JobResult.Name+"*" -and $_.State -notmatch "Idle" ) }  | Sort-Object -Property Creationtime -Descending | Select-Object -First 1
-
-    # Check results
-    $JobResult = Get-TaskResult -Task $Session
-    $JobResult = Get-SessionState -Session $Session
-
-    # Get hours since last backup
-    $JobResult.LastBkp = (New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).Hours
-
-    $CheckJobError  = Get-TaskLog -Task $Session
-    $CheckJobError += Get-SessionLog -Session $Session
-    if ($CheckJobError) { $JobResult.Text = $CheckJobError }
-     
-    # Create XML
-    Set-XMLContent -JobResult $JobResult
-}
+foreach($item in $BackupJobs)           { Get-BackupJobDetails -Job $item }
+foreach($item in $TapeJobs)             { Get-BackupJobDetails -Job $item }
+foreach($item in $NASJobs)              { Get-BackupJobDetails -Job $item }
+foreach($item in $WinAgentJobs)         { Get-BackupJobDetails -Job $item }
+foreach($item in $LinuxAgentJobs)       { Get-BackupJobDetails -Job $item }
+foreach($item in $BackupCopyJobs)       { Get-BackupJobDetails -Job $item }
+foreach($item in $NASCopyJobs)          { Get-BackupJobDetails -Job $item }
+foreach($item in $FileCopyJobs)         { Get-BackupJobDetails -Job $item }
+foreach($item in $SimpleBackupCopyJobs) { Get-BackupJobDetails -Job $item }
