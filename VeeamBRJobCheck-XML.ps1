@@ -41,8 +41,8 @@ else {
 }
 
 # General parameters
-$nl                  = [Environment]::NewLine
-$resultFolder      = "C:\Temp\VeeamResults"
+$nl           = [Environment]::NewLine
+$resultFolder = "C:\Temp\VeeamResults"
 
 # PRTG parameters
 $WarningLevel = 24 # Warninglevel in hours for last backup session
@@ -50,25 +50,25 @@ $ErrorLevel   = 36 # Errorlevel in hours for last backup session
 
 # Define JobResult object and parameters
 $JobResult = [PSCustomObject]@{
-     Name      = ""
-     Value     = 0
-     Text      = ""
+     Name     = ""
+     Value    = 0
+     Text     = ""
      Warning  = 0
-     Error     = 0
+     Error    = 0
      Countobj = 0
      duration = 0
      avgspeed = 0
      Lastbkp  = 0
      progress = 0
      percent  = 0
-     psize     = 0
-     pcu       = "GB"
-     tsize     = 0
-     tcu       = "GB"
-     rsize     = 0
-     rcu       = "GB"
-     usize     = 0
-     ucu       = "GB"
+     psize    = 0
+     pcu      = "GB"
+     tsize    = 0
+     tcu      = "GB"
+     rsize    = 0
+     rcu      = "GB"
+     usize    = 0
+     ucu      = "GB"
 }
 
 #-----------------------------------------------------------[Functions]------------------------------------------------------------
@@ -254,20 +254,20 @@ function Get-TaskResult {
 
      # Reset Values
      [int]$countobj   = 0
-     [float]$rsize     = 0
-     [float]$tsize     = 0
-     [float]$psize     = 0
-     [float]$usize     = 0
+     [float]$rsize    = 0
+     [float]$tsize    = 0
+     [float]$psize    = 0
+     [float]$usize    = 0
      [float]$avgspeed = 0
      [float]$percent  = 0
 
      # Get details from each task
      foreach ($task in $Tasks) {
           $countobj += $task.Progress.ProcessedObjects
-          $rsize     += $task.Info.Progress.ReadSize
-          $tsize     += $task.Info.Progress.TransferedSize
-          $psize     += $task.Info.Progress.ProcessedSize
-          $usize     += $task.Info.Progress.TotalUsedSize
+          $rsize    += $task.Info.Progress.ReadSize
+          $tsize    += $task.Info.Progress.TransferedSize
+          $psize    += $task.Info.Progress.ProcessedSize
+          $usize    += $task.Info.Progress.TotalUsedSize
           if ( -not ($task.Info.Progress.AvgSpeed -eq 0)) { $avgspeed += $task.Info.Progress.AvgSpeed; $countspeed++ }
           if ($task.Progress.Percents -lt 100) {$percent += $task.Progress.Percents}
      }
@@ -278,11 +278,10 @@ function Get-TaskResult {
      
      $JobResult.avgspeed = ($avgspeed/$countspeed)/1MB
      $JobResult.percent  = $percent
-
-     $JobResult.rsize = $rsize/1GB
-     $JobResult.tsize = $tsize/1GB
-     $JobResult.psize = $psize/1GB
-     $JobResult.usize = $usize/1GB
+     $JobResult.rsize    = $rsize/1GB
+     $JobResult.tsize    = $tsize/1GB
+     $JobResult.psize    = $psize/1GB
+     $JobResult.usize    = $usize/1GB
 
      Return $JobResult
 }
@@ -302,14 +301,14 @@ function Get-SessionState {
      else {$JobResult.duration = [Math]::Round((New-TimeSpan -Start $Session.CreationTime -End (Get-Date)).TotalMinutes,0)}
 
      # Get job results and define result parameters
-     if      ($Session.Result -eq "Success")          { $JobResult.Value = 1; $JobResult.Warning = 0; $JobResult.Error = 0; $JobResult.Text = "BackupJob $($JobResult.Name) erfolgreich" }
-     elseif ($Session.Result -eq "Warning")          { $JobResult.Value = 2; $JobResult.Warning = 1; $JobResult.Error = 0; $JobResult.Text = "BackupJob $($JobResult.Name) Warnung. Bitte pr&#252;fen" }
-     elseif ($Session.Result -eq "Failed")           { $JobResult.Value = 3; $JobResult.Warning = 0; $JobResult.Error = 1; $JobResult.Text = "BackupJob $($JobResult.Name) fehlerhaft" }
-     elseif ($Session.State  -eq "Working")          { $JobResult.Value = 2; $JobResult.Warning = 1; $JobResult.Error = 0; $JobResult.Text = "BackupJob $($JobResult.Name) l&#228;uft noch: $percent %"  }
+     if     ($Session.Result -eq "Success")        { $JobResult.Value = 1; $JobResult.Warning = 0; $JobResult.Error = 0; $JobResult.Text = "BackupJob $($JobResult.Name) erfolgreich" }
+     elseif ($Session.Result -eq "Warning")        { $JobResult.Value = 2; $JobResult.Warning = 1; $JobResult.Error = 0; $JobResult.Text = "BackupJob $($JobResult.Name) Warnung. Bitte pr&#252;fen" }
+     elseif ($Session.Result -eq "Failed")         { $JobResult.Value = 3; $JobResult.Warning = 0; $JobResult.Error = 1; $JobResult.Text = "BackupJob $($JobResult.Name) fehlerhaft" }
+     elseif ($Session.State  -eq "Working")        { $JobResult.Value = 2; $JobResult.Warning = 1; $JobResult.Error = 0; $JobResult.Text = "BackupJob $($JobResult.Name) l&#228;uft noch: $percent %"  }
      elseif ($Session.State  -eq "Postprocessing") { $JobResult.Value = 2; $JobResult.Warning = 1; $JobResult.Error = 0; $JobResult.Text = "BackupJob $($JobResult.Name) Nachbearbeitung" }
-     elseif ($Session.State  -eq "WaitingTape")     { $JobResult.Value = 2; $JobResult.Warning = 1; $JobResult.Error = 0; $JobResult.Text = "BackupJob $($JobResult.Name) wartet auf Tape" }
-     elseif ($Session.State  -eq "Idle")             { $JobResult.Value = 1; $JobResult.Warning = 0; $JobResult.Error = 0; $JobResult.Text = "BackupJob $($JobResult.Name) idle" }
-     else                                                    { $JobResult.Value = 3; $JobResult.Warning = 0; $JobResult.Error = 1; $JobResult.Text = "BackupJob $($JobResult.Name) unbekannter Fehler" }
+     elseif ($Session.State  -eq "WaitingTape")    { $JobResult.Value = 2; $JobResult.Warning = 1; $JobResult.Error = 0; $JobResult.Text = "BackupJob $($JobResult.Name) wartet auf Tape" }
+     elseif ($Session.State  -eq "Idle")           { $JobResult.Value = 1; $JobResult.Warning = 0; $JobResult.Error = 0; $JobResult.Text = "BackupJob $($JobResult.Name) idle" }
+     else                                          { $JobResult.Value = 3; $JobResult.Warning = 0; $JobResult.Error = 1; $JobResult.Text = "BackupJob $($JobResult.Name) unbekannter Fehler" }
 
      Return $JobResult
 }
@@ -389,12 +388,12 @@ $FileCopyJobs = Get-VBRJob | where-object { $_.IsScheduleEnabled -and $_.JobType
 $SimpleBackupCopyJobs = Get-VBRJob | where-object { $_.IsScheduleEnabled -and $_.JobType -eq "SimpleBackupCopyPolicy" }
 
 #### Get Backup Job details #####################################################################################################
-foreach($item in $BackupJobs)             { Get-BackupJobDetails -Job $item }
-foreach($item in $TapeJobs)                { Get-BackupJobDetails -Job $item }
-foreach($item in $NASJobs)                 { Get-BackupJobDetails -Job $item }
-foreach($item in $WinAgentJobs)           { Get-BackupJobDetails -Job $item }
-foreach($item in $LinuxAgentJobs)        { Get-BackupJobDetails -Job $item }
-foreach($item in $BackupCopyJobs)        { Get-BackupJobDetails -Job $item }
-foreach($item in $NASCopyJobs)            { Get-BackupJobDetails -Job $item }
-foreach($item in $FileCopyJobs)           { Get-BackupJobDetails -Job $item }
+foreach($item in $BackupJobs)           { Get-BackupJobDetails -Job $item }
+foreach($item in $TapeJobs)             { Get-BackupJobDetails -Job $item }
+foreach($item in $NASJobs)              { Get-BackupJobDetails -Job $item }
+foreach($item in $WinAgentJobs)         { Get-BackupJobDetails -Job $item }
+foreach($item in $LinuxAgentJobs)       { Get-BackupJobDetails -Job $item }
+foreach($item in $BackupCopyJobs)       { Get-BackupJobDetails -Job $item }
+foreach($item in $NASCopyJobs)          { Get-BackupJobDetails -Job $item }
+foreach($item in $FileCopyJobs)         { Get-BackupJobDetails -Job $item }
 foreach($item in $SimpleBackupCopyJobs) { Get-BackupJobDetails -Job $item }
