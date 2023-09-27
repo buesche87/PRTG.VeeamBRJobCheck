@@ -1,27 +1,30 @@
 ﻿<#
     .SYNOPSIS
-    This script checks the status of all active Veeam Backup & Replication jobs on a backup server.
-    It collects detailed information and creates an XML file per backupjob as output.
+		This script checks the status of all active Veeam Backup & Replication jobs on a backup server.
+		It collects detailed information and creates an XML file per backupjob as output.
+		The XML will be placeed in C:\Temp\VeeamResults where it can be retreived by the PRTG-Sensor
 
     .INPUTS
-    None
+		None
 
     .OUTPUTS
-    The script creates a XML file formated for PRTG.
+		The script creates a XML file formated for PRTG.
 
     .LINK
     https://raw.githubusercontent.com/tn-ict/Public/master/Disclaimer/DISCLAIMER
 
     .NOTES
-    Author  : Andreas Bucher
-    Version : 1.0.0
-    Purpose : XML part of the PRTG-Sensor VeeamBRJobCheck
+		Author:  Andreas Bucher
+		Version: 1.0.0
+		Date:    27.09.2023
+		Purpose: XML-Part of the PRTG-Sensor VeeamBRJobCheck
 
     .EXAMPLE
-    Run this script with task scheduler use powershell.exe as program and the following parameters:
-    -NoProfile -NoLogo -NonInteractive -ExecutionPolicy Bypass -File "C:\Script\VeeamBRJobCheck-XML.ps1"
-    This will place a file in C:\Temp\VeeamResults where it can be retreived by the PRTG sensor
+		powershell.exe -NoProfile -NoLogo -NonInteractive -ExecutionPolicy Bypass -File "C:\Script\VeeamBRJobCheck-XML.ps1"
+		
+		Run this script with task scheduler use powershell.exe as program and the parameters as described
 #>
+
 #----------------------------------------------------------[Declarations]----------------------------------------------------------
 # Include
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
